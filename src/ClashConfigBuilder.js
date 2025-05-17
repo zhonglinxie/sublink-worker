@@ -77,6 +77,20 @@ export class ClashConfigBuilder extends BaseConfigBuilder {
                     'skip-cert-verify': proxy.tls.insecure,
                     'flow': proxy.flow ?? undefined,
                 };
+            // case 'hysteria2':
+            //     return {
+            //         name: proxy.tag,
+            //         type: proxy.type,
+            //         server: proxy.server,
+            //         port: proxy.server_port,
+            //         obfs: proxy.obfs.type,
+            //         'obfs-password': proxy.obfs.password,
+            //         password: proxy.password,
+            //         auth: proxy.auth,
+            //         up: proxy.up_mbps,
+            //         down: proxy.down_mbps,
+            //         'recv-window-conn': proxy.recv_window_conn,
+            //     };
             case 'hysteria2':
                 return {
                     name: proxy.tag,
@@ -86,10 +100,11 @@ export class ClashConfigBuilder extends BaseConfigBuilder {
                     obfs: proxy.obfs.type,
                     'obfs-password': proxy.obfs.password,
                     password: proxy.password,
-                    auth: proxy.auth,
+                    auth: proxy.auth ?? '', // 容错，防止 undefined
                     up: proxy.up_mbps,
                     down: proxy.down_mbps,
                     'recv-window-conn': proxy.recv_window_conn,
+                    'skip-cert-verify': proxy.tls?.insecure ?? true // 新增行，建议默认 true
                 };
             case 'trojan':
                 return {
