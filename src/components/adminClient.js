@@ -4,7 +4,7 @@ export function managementApp() {
     const clone = value => JSON.parse(JSON.stringify(value));
     const el = (tag, text, className) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (className) node.className = className; return node; };
     let catalog = { revision: 0, profiles: [] }, current = null, baseline = null, nodes = [], userinfo = null;
-    let activeTab = 'overview', activeGroup = 0, epoch = 0, loading = false, mutating = false, sourceVersion = '', pendingLeave = null, importData = null, importVersion = 0, toastTimer;
+    let activeTab = 'overview', activeGroup = 0, epoch = 0, loading = false, mutating = false, accountBusy = false, sourceVersion = '', pendingLeave = null, importData = null, importVersion = 0, toastTimer;
     const dirty = () => current && JSON.stringify(current) !== JSON.stringify(baseline);
     const link = code => location.origin + '/c/' + code;
     const text = (id, value) => { $(id).textContent = value; };
@@ -18,7 +18,7 @@ export function managementApp() {
         let value;
         try { value = await response.json(); } catch { throw Error('服务器响应异常，请稍后重试'); }
         if (!response.ok) {
-            if (response.status === 401) { $('login-screen').hidden = false; $('workspace').hidden = true; $('savebar').hidden = true; }
+            if (response.status === 401) { $('login-screen').hidden = false; $('workspace').hidden = true; $('savebar').hidden = true; $('account-dialog').close(); }
             const error = Error(response.status === 409 ? '其他设备已修改了配置。当前草稿已保留，请先复制需要的内容，再重新加载服务端配置。' : value.error || '请求失败');
             error.status = response.status; throw error;
         }
@@ -114,6 +114,9 @@ export function managementApp() {
         const typeLabel = el('label', '选择方式', 'field'), type = el('select'); type.setAttribute('aria-label', '分组选择方式');
         [['select', '手动选择'], ['url-test', '自动测速'], ['fallback', '故障切换']].forEach(([value, label]) => type.add(new Option(label, value)));
         type.value = group.type; type.onchange = () => { group.type = type.value; renderSummary(); }; typeLabel.append(type); fields.append(nameLabel, typeLabel); editor.append(fields);
+        const serviceLabel = el('label', '流量用途', 'field'), service = el('select'); service.setAttribute('aria-label', '分组流量用途');
+        [['', '通用 · 不绑定服务'], ['ai', 'AI · ChatGPT / Claude / Gemini'], ['hyperliquid', 'Hyperliquid · 网页 / API / WebSocket']].forEach(([value, label]) => service.add(new Option(label, value)));
+        service.value = group.service || ''; service.onchange = () => { if (service.value) group.service = service.value; else delete group.service; renderSummary(); }; serviceLabel.append(service); serviceLabel.style.marginTop = '16px'; editor.append(serviceLabel);
         const tools = el('div', undefined, 'row between wrap'); tools.style.marginTop = '22px'; tools.append(el('h3', '分组节点 · ' + group.nodes.length));
         const batch = el('div', undefined, 'row'); batch.append(groupButton('全选', () => { group.nodes = eligible().map(n => n.name); renderGroups(); renderSummary(); }, 'text-button'), groupButton('清空', () => { group.nodes = []; renderGroups(); renderSummary(); }, 'text-button')); tools.append(batch); editor.append(tools);
         const search = el('input'); search.type = 'search'; search.placeholder = '搜索可加入的节点…'; search.setAttribute('aria-label', '搜索分组节点'); search.style.marginTop = '12px'; editor.append(search);
@@ -187,6 +190,8 @@ export function managementApp() {
         if (!/^[a-zA-Z0-9_-]{1,64}$/.test(profile.code)) invalid('code', '链接后缀只能使用 1–64 位字母、数字、短横线和下划线');
         if (!profile.input.trim()) throw Error('请填写源订阅或节点内容');
         const names = new Set(['DIRECT', 'REJECT']);
+        const services = profile.groups.filter(group => group.service).map(group => group.service);
+        if (new Set(services).size !== services.length) { tab('groups'); throw Error('同一服务只能绑定一个分组，请检查流量用途'); }
         profile.groups.forEach(group => {
             if (!group.name.trim() || names.has(group.name) || nodes.some(node => node.name === group.name) || !group.nodes.length) {
                 tab('groups');
@@ -222,12 +227,43 @@ export function managementApp() {
         while (current.groups.some(group => group.name === name)) name = base + ' ' + i++;
         current.groups.push({ name, type, nodes: eligible().map(n => n.name) }); activeGroup = current.groups.length - 1; renderGroups(); renderSummary();
     }
+    function addServiceGroup(service) {
+        if (!eligible().length) { toast('请先读取并保留至少一个节点', true); return; }
+        const existing = current.groups.findIndex(group => group.service === service);
+        if (existing >= 0) { activeGroup = existing; renderGroups(); toast('此服务分组已经存在'); return; }
+        if (!current.groups.length) current.groups.push({ name: '节点选择', type: 'select', nodes: eligible().map(n => n.name) });
+        let name = service === 'ai' ? 'AI' : 'Hyperliquid', base = name, i = 2;
+        while (current.groups.some(group => group.name === name) || nodes.some(node => node.name === name)) name = base + ' ' + i++;
+        const isUS = name => /(^|[\s|_-])(US|USA)(?=$|[\s|_-])|美国|🇺🇸/i.test(name);
+        const preferred = eligible().filter(node => service === 'ai' ? isUS(node.name) : !isUS(node.name));
+        current.groups.push({ name, service, type: 'select', nodes: (preferred.length ? preferred : eligible()).map(n => n.name) }); activeGroup = current.groups.length - 1;
+        renderGroups(); renderSummary();
+    }
+    function clearAccountSecrets() { ['account-current', 'account-password', 'account-confirm'].forEach(id => { $(id).value = ''; }); }
+    async function openAccount() {
+        clearAccountSecrets(); showError('account-error', '');
+        await action(null, async () => { const account = await api('account'); $('account-username').value = account.username; $('account-dialog').showModal(); $('account-current').focus(); });
+    }
     async function copy() {
         try { await navigator.clipboard.writeText(link(current.code)); toast(dirty() ? '链接已复制。当前修改尚未保存，客户端仍会读取原配置。' : '订阅链接已复制'); }
         catch { tab('overview'); const range = document.createRange(); range.selectNodeContents($('export-link')); const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range); toast('自动复制不可用，链接已选中，请手动复制', true); }
     }
     async function logout() { await api('logout', 'POST', {}); epoch++; current = null; baseline = null; nodes = []; userinfo = null; catalog = { revision: 0, profiles: [] }; $('workspace').hidden = true; $('login-screen').hidden = false; $('savebar').hidden = true; $('source').value = ''; $('preview').value = ''; $('password').value = ''; $('password').focus(); }
-    $('login').onsubmit = event => { event.preventDefault(); showError('login-error', ''); action($('login-submit'), async () => { await api('login', 'POST', { password: $('password').value }); $('password').value = ''; await load(); }, 'login-error'); };
+    $('login').onsubmit = event => { event.preventDefault(); showError('login-error', ''); action($('login-submit'), async () => { await api('login', 'POST', { username: $('username').value.trim(), password: $('password').value }); $('password').value = ''; await load(); }, 'login-error'); };
+    $('username').value = 'admin';
+    $('account-open').onclick = $('account-open-mobile').onclick = openAccount;
+    $('account-close').onclick = $('account-cancel').onclick = () => { if (!accountBusy) { $('account-dialog').close(); clearAccountSecrets(); } };
+    $('account-dialog').oncancel = event => { if (accountBusy) event.preventDefault(); else clearAccountSecrets(); };
+    $('account-form').onsubmit = event => {
+        event.preventDefault(); showError('account-error', '');
+        action($('account-save'), async () => {
+            if ($('account-password').value !== $('account-confirm').value) throw Error('两次输入的新密码不一致');
+            const value = { username: $('account-username').value.trim(), currentPassword: $('account-current').value, newPassword: $('account-password').value, confirmPassword: $('account-confirm').value };
+            accountBusy = true; $('account-form').inert = true;
+            try { const result = await api('account', 'PUT', value); $('username').value = result.username; clearAccountSecrets(); $('account-dialog').close(); toast('账号已更新，其他设备需重新登录；订阅链接继续有效'); }
+            finally { accountBusy = false; $('account-form').inert = false; }
+        }, 'account-error');
+    };
     $('mobile-profiles').onchange = () => { const value = $('mobile-profiles').value; $('mobile-profiles').value = current?.code || '__new__'; leave(() => value === '__new__' ? openImport() : choose(catalog.profiles.find(p => p.code === value))); };
     $('new').onclick = $('empty-import').onclick = () => leave(openImport);
     $('refresh').onclick = $('check-source').onclick = inspect;
@@ -261,6 +297,7 @@ export function managementApp() {
     $('include-all').onclick = () => { current.excluded = []; renderNodes(); renderGroups(); renderSummary(); };
     $('reset-filter').onclick = () => { $('node-search').value = ''; $('protocol-filter').value = ''; renderNodes(); };
     $('add-group').onclick = () => addGroup(); $('preset-auto').onclick = () => addGroup('url-test');
+    $('preset-ai').onclick = () => addServiceGroup('ai'); $('preset-hyperliquid').onclick = () => addServiceGroup('hyperliquid');
     $('generate-preview').onclick = () => action($('generate-preview'), async () => { validate(current); const version = epoch, draft = JSON.stringify(current), result = await api('preview', 'POST', current); if (version === epoch && draft === JSON.stringify(current)) { $('preview').value = result.yaml; $('preview').hidden = false; } });
     $('import-close').onclick = $('import-cancel').onclick = closeImport;
     $('import-dialog').oncancel = event => { if (mutating) event.preventDefault(); else importVersion++; };

@@ -23,6 +23,9 @@ async function setup(t, overrides = {}) {
         calls.push({ url, body, method: options.method });
         const custom = await overrides.fetch?.(url, options, body); if (custom) return custom;
         if (url === '/admin/session') return Response.json({ authenticated: true });
+        if (url === '/admin/account' && options.method === 'GET') return Response.json({ username: 'admin' });
+        if (url === '/admin/account' && options.method === 'PUT') return Response.json({ ok: true, username: body.username });
+        if (url === '/admin/login') return Response.json({ ok: true });
         if (url === '/admin/profiles' && options.method === 'GET') return Response.json(catalog);
         if (url === '/admin/inspect') return Response.json({ nodes, userinfo: 'upload=1000000000; download=4000000000; total=100000000000; expire=1900000000' });
         if (url === '/admin/preview') return Response.json({ nodes, yaml: 'proxies: []' });
@@ -114,4 +117,38 @@ test('a failed refresh preserves last known nodes and presents a retry', async t
     $('refresh').click(); await until(() => !$('workspace-error').hidden);
     assert.equal($('node-rows').children.length, 3); assert.match($('workspace-error').textContent, /重试/);
     assert.equal($('refresh').disabled, false); assert.equal($('savebar').hidden, true);
+});
+test('service presets preserve a general default and bind rules independently of the name', async t => {
+    const { $, calls } = await setup(t);
+    $('preset-ai').click(); $('preset-hyperliquid').click(); $('preset-hyperliquid').click();
+    assert.equal($('group-list').children.length, 3);
+    assert.equal($('group-editor').querySelector('[aria-label="分组流量用途"]').value, 'hyperliquid');
+    $('save').click(); await until(() => $('savebar').hidden);
+    const groups = calls.findLast(call => call.method === 'PUT').body.profile.groups;
+    assert.equal(groups[0].name, '节点选择');
+    assert.deepEqual(groups[1].nodes, ['US HY2', 'US TUIC']);
+    assert.equal(groups[1].service, 'ai'); assert.equal(groups[2].service, 'hyperliquid');
+    assert.deepEqual(groups[2].nodes, ['<script>alert(1)</script>']);
+});
+test('account dialog checks confirmation and clears secrets after updating', async t => {
+    const { $, window, calls, input } = await setup(t);
+    $('account-open').click(); await until(() => $('account-dialog').open);
+    input('account-username', 'owner'); input('account-current', 'old-password'); input('account-password', 'new-long-password'); input('account-confirm', 'different');
+    $('account-form').dispatchEvent(new window.Event('submit', { cancelable: true }));
+    await until(() => !$('account-error').hidden); assert.match($('account-error').textContent, /不一致/);
+    assert.equal(calls.some(call => call.url === '/admin/account' && call.method === 'PUT'), false);
+    input('account-confirm', 'new-long-password'); $('account-form').dispatchEvent(new window.Event('submit', { cancelable: true }));
+    await until(() => !$('account-dialog').open);
+    for (const id of ['account-current', 'account-password', 'account-confirm']) assert.equal($(id).value, '');
+    assert.equal($('username').value, 'owner');
+    assert.equal($('savebar').hidden, true);
+});
+test('login sends both the username and password', async t => {
+    const { $, window, calls, input } = await setup(t);
+    $('logout-mobile').click(); await until(() => !$('login-screen').hidden);
+    input('username', 'owner'); input('password', 'new-long-password');
+    $('login').dispatchEvent(new window.Event('submit', { cancelable: true }));
+    await until(() => calls.some(call => call.url === '/admin/login'));
+    assert.deepEqual(calls.findLast(call => call.url === '/admin/login').body, { username: 'owner', password: 'new-long-password' });
+    await until(() => !$('workspace').hidden && $('loading').hidden);
 });

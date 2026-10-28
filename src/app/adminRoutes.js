@@ -1,5 +1,5 @@
 import { bodyLimit } from 'hono/body-limit';
-import { authenticated, sameOrigin, login, logout } from '../services/adminAuth.js';
+import { authenticated, sameOrigin, login, logout, accountInfo, changeAccount } from '../services/adminAuth.js';
 import { readCatalog, updateCatalog, validateProfile, renderProfile, validCode } from '../services/managedSubscriptions.js';
 
 export function registerAdminRoutes(app, runtime) {
@@ -13,10 +13,12 @@ export function registerAdminRoutes(app, runtime) {
         try { await next(); } catch (e) { return c.json({ error: e.status ? e.message : '操作失败，请稍后重试' }, e.status || 500); }
     });
     app.post('/admin/login', async c => {
-        const { password } = await c.req.json();
-        return await login(c, runtime, password) ? c.json({ ok: true }) : c.json({ error: '密码不正确' }, 401);
+        const { username, password } = await c.req.json();
+        return await login(c, runtime, username, password) ? c.json({ ok: true }) : c.json({ error: '用户名或密码不正确' }, 401);
     });
     app.get('/admin/session', async c => c.json({ authenticated: await authenticated(c, runtime) }));
+    app.get('/admin/account', async c => c.json(await accountInfo(runtime)));
+    app.put('/admin/account', async c => c.json(await changeAccount(c, runtime, await c.req.json())));
     app.post('/admin/logout', async c => { await logout(c, runtime); return c.json({ ok: true }); });
     app.get('/admin/profiles', async c => c.json((await readCatalog(runtime.kv)).data));
     app.post('/admin/inspect', async c => {

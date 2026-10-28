@@ -9,7 +9,7 @@ async function setup() {
     const kv = new MemoryKVAdapter();
     const hash = await digest('test-long-random-password');
     const app = createApp({ kv, config: { adminPasswordHash: hash } });
-    const response = await app.request(origin + '/admin/login', { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ password: 'test-long-random-password' }) });
+    const response = await app.request(origin + '/admin/login', { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'admin', password: 'test-long-random-password' }) });
     expect(response.status).toBe(200);
     return { app, kv, cookie: response.headers.get('set-cookie').split(';')[0] };
 }
@@ -71,5 +71,61 @@ describe('single-owner management', () => {
         const catalog = await (await app.request(origin + '/admin/profiles', { headers: { Cookie: cookie } })).json();
         expect(catalog).toEqual({ revision: 0, profiles: [] });
         expect((await send(app, cookie, '/admin/inspect', 'POST', { input: '' })).status).toBe(400);
+    });
+    it('requires the username and stores an upgraded salted credential', async () => {
+        const { app, kv } = await setup();
+        expect((await send(app, '', '/admin/login', 'POST', { password: 'test-long-random-password' })).status).toBe(401);
+        expect((await send(app, '', '/admin/login', 'POST', { username: 'wrong', password: 'test-long-random-password' })).status).toBe(401);
+        const account = JSON.parse(await kv.get('admin:account:v1'));
+        expect(account.password.algorithm).toBe('pbkdf2-sha256');
+        expect(account.password.iterations).toBe(600000);
+        expect(JSON.stringify(account)).not.toContain('test-long-random-password');
+    });
+    it('changes credentials durably, rotates the current session and revokes all old sessions', async () => {
+        const { app, kv, cookie } = await setup();
+        const other = await send(app, '', '/admin/login', 'POST', { username: 'admin', password: 'test-long-random-password' });
+        const otherCookie = other.headers.get('set-cookie').split(';')[0];
+        const update = { username: 'owner', currentPassword: 'test-long-random-password', newPassword: 'my-new-long-password', confirmPassword: 'my-new-long-password' };
+        expect((await send(app, cookie, '/admin/account', 'PUT', { ...update, currentPassword: 'wrong' })).status).toBe(400);
+        expect((await send(app, cookie, '/admin/account', 'PUT', { ...update, confirmPassword: 'different' })).status).toBe(400);
+        expect((await send(app, cookie, '/admin/account', 'PUT', { ...update, newPassword: 'short', confirmPassword: 'short' })).status).toBe(400);
+        const changed = await send(app, cookie, '/admin/account', 'PUT', update);
+        expect(changed.status).toBe(200);
+        const renewed = changed.headers.get('set-cookie').split(';')[0];
+        for (const old of [cookie, otherCookie]) expect((await app.request(origin + '/admin/account', { headers: { Cookie: old } })).status).toBe(401);
+        const response = await app.request(origin + '/admin/account', { headers: { Cookie: renewed } });
+        expect(await response.json()).toEqual({ username: 'owner' });
+        const restarted = createApp({ kv, config: { adminPasswordHash: await digest('test-long-random-password') } });
+        expect((await send(restarted, '', '/admin/login', 'POST', { username: 'admin', password: 'test-long-random-password' })).status).toBe(401);
+        expect((await send(restarted, '', '/admin/login', 'POST', { username: 'owner', password: 'my-new-long-password' })).status).toBe(200);
+    });
+    it('rejects competing credential changes with an atomic write', async () => {
+        const { app, cookie } = await setup();
+        const change = pass => send(app, cookie, '/admin/account', 'PUT', { currentPassword: 'test-long-random-password', newPassword: pass, confirmPassword: pass });
+        const results = await Promise.all([change('first-new-password'), change('second-new-password')]);
+        const statuses = results.map(r => r.status).sort();
+        expect(statuses[0]).toBe(200);
+        expect([401, 409]).toContain(statuses[1]);
+    });
+    it('limits repeated failed logins', async () => {
+        const { app } = await setup();
+        for (let i = 0; i < 10; i++) expect((await send(app, '', '/admin/login', 'POST', { username: 'wrong', password: 'wrong' })).status).toBe(401);
+        expect((await send(app, '', '/admin/login', 'POST', { username: 'admin', password: 'test-long-random-password' })).status).toBe(429);
+    });
+    it('routes service domains before the default rule and preserves the binding on rename', async () => {
+        const { app, cookie } = await setup();
+        const grouped = { ...profile, excluded: [], groups: [{ name: 'General', type: 'select', nodes: ['US', 'TW'] }, { name: 'AI', service: 'ai', type: 'select', nodes: ['US'] }, { name: 'HL', service: 'hyperliquid', type: 'select', nodes: ['TW'] }] };
+        expect((await send(app, cookie, '/admin/profiles/my-airport', 'PUT', { revision: 0, profile: grouped })).status).toBe(200);
+        const result = yaml.load(await (await app.request(origin + '/c/my-airport')).text());
+        expect(result.rules).toContain('DOMAIN-SUFFIX,chatgpt.com,AI');
+        expect(result.rules).toContain('DOMAIN-SUFFIX,claude.ai,AI');
+        expect(result.rules).toContain('DOMAIN-SUFFIX,gemini.google.com,AI');
+        expect(result.rules).toContain('DOMAIN-SUFFIX,hyperliquid.xyz,HL');
+        expect(result.rules.at(-1)).toBe('MATCH,General');
+        expect(result.mode).toBe('rule');
+        expect(result.rules).not.toContain('DOMAIN-SUFFIX,google.com,AI');
+        const saved = await (await app.request(origin + '/admin/profiles', { headers: { Cookie: cookie } })).json();
+        expect(saved.profiles[0].groups[2].service).toBe('hyperliquid');
+        expect((await send(app, cookie, '/admin/preview', 'POST', { ...grouped, groups: [...grouped.groups, { name: 'Duplicate', service: 'ai', type: 'select', nodes: ['US'] }] })).status).toBe(400);
     });
 });
