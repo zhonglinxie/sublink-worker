@@ -1,90 +1,29 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource hono/jsx */
-function managementApp() {
-    const $ = id => document.getElementById(id);
-    let catalog = { revision: 0, profiles: [] }, current = null, nodes = [];
-    const message = text => { $('message').textContent = text; };
-    async function api(path, method = 'GET', data) {
-        const r = await fetch('/admin/' + path, { method, headers: { 'Content-Type': 'application/json' }, ...(data ? { body: JSON.stringify(data) } : {}) });
-        const d = await r.json();
-        if (!r.ok) { if (r.status === 401) { $('login').hidden = false; $('workspace').hidden = true; } throw Error(d.error || '请求失败'); }
-        return d;
-    }
-    function blank() { return { code: '', name: '', input: '', enabled: true, excluded: [], groups: [] }; }
-    function read() {
-        return { ...current, code: $('code').value.trim(), name: $('name').value.trim(), input: $('source').value, enabled: $('enabled').checked };
-    }
-    function choose(profile) {
-        current = structuredClone(profile || blank()); nodes = [];
-        for (const id of ['code', 'name']) $(id).value = current[id];
-        $('code').disabled = catalog.profiles.some(p => p.code === current.code);
-        $('source').value = current.input; $('enabled').checked = current.enabled;
-        $('nodes').replaceChildren(); $('usage').textContent = '点击“读取节点与用量”获取最新数据';
-        $('preview').value = ''; renderGroups(); updateLink();
-    }
-    function updateLink() { $('export').textContent = location.origin + '/c/' + $('code').value.trim(); }
-    function renderGroups() {
-        $('groups').replaceChildren();
-        current.groups.forEach((g, i) => {
-            const row = document.createElement('div'); row.className = 'group';
-            const name = document.createElement('input'); name.value = g.name; name.placeholder = '分组名称'; name.setAttribute('aria-label', '分组名称'); name.oninput = () => g.name = name.value;
-            const type = document.createElement('select'); type.setAttribute('aria-label', '分组方式');
-            for (const [value, label] of [['select', '手动选择'], ['url-test', '自动测速'], ['fallback', '故障切换']]) type.add(new Option(label, value));
-            type.value = g.type; type.onchange = () => g.type = type.value;
-            const members = document.createElement('select'); members.multiple = true; members.size = 5; members.setAttribute('aria-label', '分组节点');
-            const available = [...new Set([...g.nodes, ...nodes.filter(n => !current.excluded.includes(n.name)).map(n => n.name)])];
-            for (const n of available) { const o = new Option(n, n); o.selected = g.nodes.includes(n); members.add(o); }
-            members.onchange = () => g.nodes = [...members.selectedOptions].map(o => o.value);
-            const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '移除分组'; remove.onclick = () => { current.groups.splice(i, 1); renderGroups(); };
-            row.append(name, type, members, remove); $('groups').append(row);
-        });
-    }
-    function renderNodes() {
-        $('nodes').replaceChildren();
-        nodes.forEach(n => {
-            const label = document.createElement('label'); label.className = 'node';
-            const check = document.createElement('input'); check.type = 'checkbox'; check.checked = !current.excluded.includes(n.name);
-            check.onchange = () => { current.excluded = current.excluded.filter(x => x !== n.name); if (!check.checked) current.excluded.push(n.name); renderGroups(); };
-            const text = document.createElement('span'); text.textContent = n.name + ' · ' + n.type + ' · ' + n.server + ':' + n.port;
-            label.append(check, text); $('nodes').append(label);
-        });
-    }
-    function usage(value) {
-        if (!value) return '源订阅未提供用量信息';
-        const pairs = Object.fromEntries(value.split(';').map(x => x.trim().split('=')));
-        const gb = n => (Number(n) / 1e9).toFixed(2) + ' GB';
-        const used = Number(pairs.upload || 0) + Number(pairs.download || 0);
-        const total = Number(pairs.total || 0);
-        return '已用 ' + gb(used) + (total ? ' / ' + gb(total) + '，剩余 ' + gb(Math.max(0, total - used)) : '') + (Number(pairs.expire) > 0 ? ' · 到期 ' + new Date(Number(pairs.expire) * 1000).toLocaleString() : '');
-    }
-    async function load(preferred) {
-        catalog = await api('profiles'); $('profiles').replaceChildren(new Option('新建订阅', ''));
-        catalog.profiles.forEach(p => $('profiles').add(new Option(p.name + (p.enabled ? '' : '（已停用）'), p.code)));
-        const p = catalog.profiles.find(p => p.code === preferred); $('profiles').value = p?.code || ''; choose(p);
-        $('login').hidden = true; $('workspace').hidden = false;
-    }
-    const run = action => async () => { try { message('处理中…'); await action(); } catch (e) { message(e.message); } };
-    $('login').onsubmit = async event => { event.preventDefault(); await run(async () => { await api('login', 'POST', { password: $('password').value }); $('password').value = ''; await load(); message('登录成功'); })(); };
-    $('profiles').onchange = () => choose(catalog.profiles.find(p => p.code === $('profiles').value));
-    $('new').onclick = () => { $('profiles').value = ''; choose(); };
-    $('code').oninput = updateLink;
-    $('refresh').onclick = run(async () => {
-        current = read();
-        const data = await api('preview', 'POST', current); nodes = data.nodes;
-        $('usage').textContent = usage(data.userinfo); $('preview').value = data.yaml;
-        renderNodes(); renderGroups(); message('已读取 ' + nodes.length + ' 个节点。用量来自源订阅，多源时显示首个提供用量的来源。');
-    });
-    $('add-group').onclick = () => { current.groups.push({ name: '分组 ' + (current.groups.length + 1), type: 'select', nodes: nodes.filter(n => !current.excluded.includes(n.name)).map(n => n.name) }); renderGroups(); };
-    $('save').onclick = run(async () => {
-        current = read(); const code = current.code;
-        await api('profiles/' + encodeURIComponent(code), 'PUT', { revision: catalog.revision, profile: current });
-        await load(code); message('配置已保存到服务端，可在其他设备登录查看');
-    });
-    $('reload').onclick = run(async () => { await load(current?.code); message('已加载服务端最新配置'); });
-    $('copy').onclick = run(async () => { if (!catalog.profiles.some(p => p.code === $('code').value.trim())) throw Error('请先保存订阅，再复制链接'); await navigator.clipboard.writeText($('export').textContent); message('订阅链接已复制'); });
-    $('logout').onclick = run(async () => { await api('logout', 'POST', {}); $('login').hidden = false; $('workspace').hidden = true; $('source').value = ''; $('preview').value = ''; catalog = { revision: 0, profiles: [] }; current = null; nodes = []; message('已退出'); });
-    run(async () => { const s = await api('session'); if (s.authenticated) await load(); message(s.authenticated ? '已加载订阅' : '请登录'); })();
-}
-export const AdminPage = () => <html lang="zh-CN"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1" /><title>订阅管理</title><style>{`
-:root{font:15px system-ui;color:#17253a;background:#f5f7fa}*{box-sizing:border-box}body{margin:0}main{max-width:1080px;margin:auto;padding:36px 22px}header{display:flex;justify-content:space-between;align-items:center}h1{font-size:26px;margin:0}h2{font-size:18px;margin:0 0 18px}p{line-height:1.7;color:#59677a}section,form{background:white;padding:24px;border:1px solid #dce3eb;border-radius:14px;margin:20px 0}.row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}input:not([type=checkbox]),select,textarea{font:inherit;background:white;border:1px solid #ccd6e2;border-radius:7px;padding:10px;max-width:100%}input[type=checkbox]{width:18px;height:18px;accent-color:#2563eb}textarea{width:100%;margin-top:8px;line-height:1.5}button{font:inherit;cursor:pointer;border:1px solid #cad5e2;border-radius:7px;padding:10px 16px;background:#fff;color:#24334a}button.primary{color:#fff;background:#2563eb;border-color:#2563eb}button:hover{filter:brightness(.96)}label{display:block;margin:10px 0}.fields{display:grid;grid-template-columns:1fr 1fr;gap:16px}.fields input{width:100%}.node{display:flex;gap:12px;align-items:center;padding:10px;border-bottom:1px solid #edf0f4;overflow-wrap:anywhere}.group{display:grid;grid-template-columns:1fr 160px;gap:10px;padding:16px;background:#f7f9fc;margin:12px 0;border-radius:8px}.group select[multiple]{grid-column:1/-1}#message{position:sticky;top:0;background:#eaf2ff;border-radius:8px;padding:14px;z-index:2;min-height:46px}#export{overflow-wrap:anywhere;font-family:monospace}#usage{font-size:18px;color:#233f66}.muted{font-size:13px}a{color:#245cba}[hidden]{display:none!important}@media(max-width:600px){.fields,.group{grid-template-columns:1fr}main{padding:24px 14px}section{padding:18px}}
-`}</style></head><body><main><header><h1>订阅管理</h1><a href="/">打开转换工具</a></header><p>导入订阅、选择节点、调整分组，并用固定链接同步到客户端。</p><div id="message" role="status" aria-live="polite"></div><form id="login"><label>管理密码<input id="password" type="password" required autocomplete="current-password" /></label><button class="primary" type="submit">登录</button></form><div id="workspace" hidden><section><div class="row"><select id="profiles" aria-label="选择订阅"></select><button id="new">新建订阅</button><button id="reload">刷新配置</button><button id="logout">退出</button></div></section><section><h2>订阅与链接</h2><div class="fields"><label>显示名称<input id="name" placeholder="例如 hjy-airport" maxlength="100" /></label><label>链接后缀<input id="code" placeholder="hjy-airport" pattern="[a-zA-Z0-9_-]+" maxlength="64" /></label></div><label>源订阅或节点内容<textarea id="source" rows="5" placeholder="订阅 URL、Clash YAML、Base64 或节点分享链接" /></label><label class="row"><input id="enabled" type="checkbox" />启用此订阅</label><div class="row"><button id="refresh">读取节点与用量</button><button id="save" class="primary">保存到服务端</button><button id="copy">复制订阅链接</button></div><p id="export"></p><p class="muted">已保存的后缀保持固定。停用后，客户端更新会收到停用提示。</p></section><section><h2>用量</h2><div id="usage"></div></section><section><h2>导出节点</h2><p class="muted">取消勾选可从导出配置中排除节点。</p><div id="nodes"></div></section><section><h2>节点分组</h2><p>第一个分组作为默认出口；不创建分组时，自动生成包含全部选中节点的选择组。</p><p class="muted">支持手动选择、自动测速、故障切换。按住 Command / Ctrl 可多选分组节点。</p><div id="groups"></div><button id="add-group">添加分组</button></section><section><h2>配置预览</h2><textarea id="preview" rows="8" readonly aria-label="导出配置预览" /></section></div></main><script dangerouslySetInnerHTML={{ __html: `(${managementApp.toString()})();` }} /></body></html>;
+import { managementApp } from './adminClient.js';
+import { adminStyles } from './adminStyles.js';
+const Icon = ({ name }) => {
+    const paths = { link: 'M10 13a5 5 0 0 0 7 .1l3-3a5 5 0 0 0-7-7l-2 2 M14 11a5 5 0 0 0-7-.1l-3 3a5 5 0 0 0 7 7l2-2', grid: 'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z', nodes: 'M4 5h16v5H4z M4 14h16v5H4z M7 7.5h.01 M7 16.5h.01', groups: 'M9 3h6v5H9z M3 16h6v5H3z M15 16h6v5h-6z M12 8v4 M6 16v-4h12v4', settings: 'M4 7h16 M4 17h16 M9 4v6 M16 14v6', plus: 'M12 5v14 M5 12h14', refresh: 'M20 7v5h-5 M4 17v-5h5 M6 7a7 7 0 0 1 11-2l3 3 M18 17a7 7 0 0 1-11 2l-3-3', copy: 'M9 9h12v12H9z M15 5V3H3v12h2', arrow: 'M7 17 17 7 M7 7h10v10', check: 'M5 12l4 4L19 6', info: 'M12 8h.01 M12 11v6 M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0', clock: 'M12 6v6l4 2 M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0', shield: 'M12 3 3 7v5c0 5 9 9 9 9s9-4 9-9V7z M8 12l3 3 5-6', search: 'M21 21l-5-5 M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0', close: 'M6 6l12 12 M18 6 6 18', upload: 'M12 16V3 M7 8l5-5 5 5 M4 16v5h16v-5', logout: 'M9 4H4v16h5 M10 12h11 M17 8l4 4-4 4' };
+    return <svg viewBox="0 0 24 24" aria-hidden="true"><path d={paths[name] || paths.link} /></svg>;
+};
+const Brand = () => <div class="row brand"><span class="brandmark"><Icon name="link" /></span><span>Sublink<em>SPACE</em></span></div>;
+export const AdminPage = () => <html lang="zh-CN"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1" /><meta name="color-scheme" content="light" /><title>Sublink · 订阅管理</title><style>{adminStyles}</style></head><body>
+    <div id="login-screen" class="login-screen"><form id="login" class="login-card"><Brand /><div class="eyebrow">YOUR SUBSCRIPTIONS, ORGANIZED.</div><h1 style="margin-top:10px">订阅，井井有条。</h1><p>管理节点与分组，用一条固定链接同步到所有设备。</p><div id="login-error" class="error-box" role="alert" hidden></div><label class="field" for="password">管理密码<input id="password" type="password" required autocomplete="current-password" placeholder="输入你的管理密码" /></label><button id="login-submit" class="primary" type="submit">进入工作台<Icon name="arrow" /></button><div class="login-footer">仅你可见 · 服务端保存 · 多设备同步</div></form></div>
+    <div id="workspace" class="shell" hidden><aside class="sidebar"><Brand /><div class="side-caption">SUBSCRIPTIONS / 我的订阅</div><nav id="subscription-list" class="subscription-list" aria-label="订阅列表"></nav><button id="new" class="side-add"><Icon name="plus" />导入订阅</button><select id="mobile-profiles" class="mobile-select" aria-label="切换订阅"></select><div class="side-bottom"><a href="/" class="row muted"><Icon name="arrow" />单次转换工具</a><div class="owner"><span class="avatar">Z</span><div><strong>个人工作台</strong><div class="muted">PRIVATE WORKSPACE</div></div><button id="logout" class="quiet icon" aria-label="退出登录" style="margin-left:auto"><Icon name="logout" /></button></div></div></aside>
+    <main class="main"><div class="topline"><span>工作台 <span style="margin:0 10px;color:#b7c0af">/</span> 订阅管理</span><a href="/">打开转换工具<Icon name="arrow" /></a></div>
+    <div id="workspace-error" class="error-box" role="alert" tabindex="-1" hidden></div>
+    <div id="empty-workspace" class="empty empty-workspace" hidden><Icon name="link" /><h2>让订阅管理简单一点</h2><p>导入你的第一个订阅，选择需要的节点，再生成固定链接。</p><button id="empty-import" class="primary"><Icon name="plus" />导入订阅</button></div>
+    <div id="profile-content" hidden><header class="page-head"><div><div class="page-title"><h1 id="profile-title"></h1><span id="profile-status" class="badge"></span></div><p class="subhead">一处整理，同步到你的每一台设备。</p></div><div class="row"><button id="refresh"><Icon name="refresh" />更新数据</button><button id="copy" class="primary"><Icon name="copy" />复制订阅链接</button></div></header>
+    <div class="tabs" role="tablist" aria-label="订阅管理视图">{[['overview','概览','grid'],['nodes','节点','nodes'],['groups','分组','groups'],['settings','设置','settings']].map(([id,label,icon]) => <button id={`tab-${id}`} role="tab" aria-controls={`view-${id}`} aria-selected={id==='overview'?'true':'false'} tabindex={id==='overview'?0:-1} data-tab={id}><Icon name={icon} />{label}<span id={`${id}-count`}></span></button>)}</div>
+    <div id="loading" class="loading-line" role="status" hidden>正在读取源订阅与用量…</div>
+    <section id="view-overview" role="tabpanel" aria-labelledby="tab-overview"><div class="stats"><article class="stat"><div class="stat-label">流量用量<Icon name="clock" /></div><div id="usage-value" class="stat-value">—<small>等待源订阅数据</small></div><div class="meter" role="progressbar" aria-label="已使用流量" aria-valuemin="0" aria-valuemax="100" id="usage-meter"><span id="usage-progress"></span></div><p id="usage-note" class="stat-note">用量由源订阅提供</p></article><article class="stat"><div class="stat-label">导出节点<Icon name="nodes" /></div><div id="node-value" class="stat-value">—</div><p id="node-note" class="stat-note">读取后即可筛选节点</p></article><article class="stat"><div class="stat-label">节点分组<Icon name="groups" /></div><div id="group-value" class="stat-value">—</div><p id="group-note" class="stat-note">为不同用途安排节点</p></article></div>
+    <div class="overview-grid"><div class="stack"><article class="panel link-card"><div class="panel-head"><div><h2>你的订阅链接</h2><p class="muted">保存后，客户端通过这个固定地址获取配置。</p></div><span class="pill">MIHOMO</span></div><div class="link-box"><Icon name="link" /><code id="export-link"></code><button id="copy-inline" class="icon quiet" aria-label="复制固定订阅链接"><Icon name="copy" /></button></div><p class="muted" style="font-size:11px">添加到 Clash Verge、Clash Meta 或其他 Mihomo 客户端。</p><div class="note"><Icon name="shield" /><span>链接包含节点访问配置，请只保存在你信任的客户端中。</span></div></article><article class="panel"><div class="panel-head"><h2>订阅信息</h2><button id="go-settings" class="text-button">管理来源<Icon name="arrow" /></button></div><div class="detail-row"><span>来源</span><span id="source-label"></span></div><div class="detail-row"><span>到期时间</span><span id="expire-label">等待数据</span></div><div class="detail-row"><span>最近读取</span><span id="fetched-label">尚未读取</span></div><div class="detail-row"><span>配置保存</span><span id="saved-label"></span></div></article></div><article class="panel"><div class="panel-head"><h2>从导入到连接</h2><span class="eyebrow">GET CONNECTED</span></div><div class="help-list">{[['1','整理可用节点','在「节点」中勾选需要导出的节点。'],['2','按需创建分组','自动测速、故障切换或手动选择。'],['3','保存并同步','复制固定链接，在客户端添加或更新。']].map(([n,title,desc])=><div class="help-item"><span class="step-circle">{n}</span><div><strong>{title}</strong><p>{desc}</p></div></div>)}</div><div class="divider"></div><p class="muted" style="font-size:11px;line-height:1.9">读取和用量更新不会修改已保存配置。调整节点与分组后，记得保存并在客户端更新订阅。</p></article></div></section>
+    <section id="view-nodes" role="tabpanel" aria-labelledby="tab-nodes" hidden><div class="panel"><div class="panel-head"><div><h2>选择导出的节点</h2><p class="muted">勾选保留，取消勾选后会从订阅与分组中移除。</p></div><span id="node-summary" class="badge"></span></div><div class="toolbar"><label class="search"><span class="sr-only">搜索节点</span><Icon name="search" /><input id="node-search" type="search" placeholder="搜索名称、地址或协议…" /></label><select id="protocol-filter" aria-label="按协议筛选"><option value="">所有协议</option></select></div><div class="table-wrap"><table class="node-table"><thead><tr><th><input id="select-visible" type="checkbox" aria-label="选择当前筛选的全部节点" /></th><th>节点名称</th><th>协议</th><th>服务器</th><th>地址</th></tr></thead><tbody id="node-rows"></tbody></table><div id="nodes-empty" class="empty" hidden><h2>没有找到节点</h2><p>换个关键词或协议试试。</p></div></div><div class="table-footer"><span id="filter-summary"></span><div class="row"><button id="include-all" class="text-button">导出全部节点</button><button id="reset-filter" class="text-button">清除筛选</button></div></div></div><div class="note"><Icon name="info" /><span>这里显示的是源订阅中的节点，不代表实时连通状态。请在客户端测速确认。</span></div></section>
+    <section id="view-groups" role="tabpanel" aria-labelledby="tab-groups" hidden><div class="panel"><div class="panel-head"><div><h2>让节点各就各位</h2><p class="muted">第一个分组为默认出口；勾选节点即可加入分组。</p></div><button id="add-group" class="small"><Icon name="plus" />新建分组</button></div><div id="groups-empty" class="empty"><Icon name="groups" /><h2>默认已为你准备好</h2><p>未创建自定义分组时，导出会包含一个「节点选择」组。需要自动测速或故障切换时，再创建分组。</p><button id="preset-auto">创建自动测速组</button></div><div id="groups-layout" class="groups-layout" hidden><nav id="group-list" class="group-list" aria-label="分组列表"></nav><div id="group-editor" class="group-editor"></div></div></div><div class="note"><Icon name="info" /><span>托管导出采用默认分组接管全部流量的规则。源订阅的复杂分流规则不会原样保留。</span></div></section>
+    <section id="view-settings" role="tabpanel" aria-labelledby="tab-settings" hidden><div class="settings-grid"><article class="panel"><div class="panel-head"><div><h2>名称与固定链接</h2><p class="muted">给订阅起一个容易辨认的名字。</p></div></div><div class="two"><label class="field">显示名称<input id="name" maxlength="100" placeholder="例如：我的美国节点" /></label><label class="field">链接后缀<input id="code" disabled /><span class="field-note">已创建的链接保持固定，避免客户端失效。</span></label></div></article><article class="panel"><div class="panel-head"><div><h2>订阅来源</h2><p class="muted">支持订阅 URL、Clash YAML、Base64 和节点分享链接。</p></div></div><details id="source-details"><summary>查看或编辑来源内容</summary><label class="sr-only" for="source">源订阅或节点内容</label><textarea id="source" rows="6" spellcheck="false" maxlength="200000"></textarea><p class="field-note" style="margin-top:8px">来源可能包含访问凭据，请勿分享截图。</p></details><button id="check-source" style="margin-top:20px"><Icon name="refresh" />检查来源并更新节点</button></article><article class="panel"><div class="toggle-line"><div><h2>启用订阅</h2><p class="muted" style="margin-top:5px">停用并保存后，客户端将无法更新此订阅。</p></div><input id="enabled" class="switch" type="checkbox" role="switch" aria-label="启用订阅" /></div></article><article class="panel"><details id="advanced"><summary>高级 · 导出配置预览</summary><p class="muted" style="margin-top:12px">按当前编辑内容生成，预览可能包含节点密码。</p><button id="generate-preview" class="small" style="margin-top:12px">生成预览</button><textarea id="preview" rows="12" readonly aria-label="当前导出配置预览" hidden /></details></article><div class="row between wrap"><button id="reload">重新加载服务端配置</button><button id="logout-mobile" class="quiet">退出登录</button></div></div></section>
+    <footer class="bottom-note"><span class="row" style="gap:5px"><Icon name="shield" />仅自己使用 · 配置保存到服务端</span><span>少一点折腾，多一点连接。</span></footer></div></main></div>
+    <div id="savebar" hidden><div class="savebar-label"><span class="dot" style="color:#b9d69d;margin-right:8px"></span>有尚未保存的修改<small>保存后，客户端更新订阅才会生效</small></div><div class="row" style="gap:8px"><button id="discard" class="quiet">撤销修改</button><button id="save" class="primary"><Icon name="check" />保存更改</button></div></div>
+    <dialog id="import-dialog" aria-labelledby="import-title"><div class="dialog-head"><h2 id="import-title">导入一个新订阅</h2><button id="import-close" class="quiet icon" aria-label="关闭导入"><Icon name="close" /></button></div><p class="muted">先读取节点，再设置名称与固定链接。</p><div id="import-error" class="error-box" role="alert" tabindex="-1" style="margin-top:18px" hidden></div><div id="import-step-one"><div class="import-step">01 / 添加来源</div><label class="field">订阅链接或节点内容<textarea id="import-source" rows="6" placeholder="https://example.com/subscribe&#10;也可以粘贴 YAML、Base64 或节点分享链接" spellcheck="false" maxlength="200000" /></label><label class="file-label"><Icon name="upload" />从本地配置文件导入<input id="import-file" type="file" accept=".yaml,.yml,.txt,.conf,.json" class="sr-only" /></label><div class="dialog-footer"><button id="import-cancel" class="quiet">取消</button><button id="import-inspect" class="primary">读取节点<Icon name="arrow" /></button></div></div><div id="import-step-two" hidden><div class="import-step">02 / 确认并创建</div><div class="import-result"><strong id="import-count"></strong>个节点已准备好<p id="import-usage" class="muted"></p></div><div class="stack"><label class="field">订阅名称<input id="import-name" maxlength="100" placeholder="例如：我的机场" /></label><label class="field">链接后缀<input id="import-code" maxlength="64" placeholder="my-airport" pattern="[a-zA-Z0-9_-]+" /><span id="import-link" class="field-note mono"></span></label></div><div class="dialog-footer"><button id="import-back" class="quiet">上一步</button><button id="import-save" class="primary">创建订阅<Icon name="check" /></button></div></div></dialog>
+    <dialog id="discard-dialog" aria-labelledby="discard-title"><h2 id="discard-title">保留这次修改吗？</h2><p class="muted" style="margin-top:12px">当前订阅有尚未保存的修改。继续编辑，或放弃后离开。</p><div class="dialog-footer"><button id="keep-editing" class="primary">继续编辑</button><button id="confirm-discard" class="danger">放弃修改并继续</button></div></dialog>
+    <div id="toast" role="status" aria-live="polite" hidden></div><noscript><p class="panel">此管理工具需要启用 JavaScript。</p></noscript><script dangerouslySetInnerHTML={{ __html: `(${managementApp.toString()})();` }} />
+</body></html>;
