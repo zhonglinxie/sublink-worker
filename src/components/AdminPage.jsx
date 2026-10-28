@@ -81,7 +81,7 @@ function managementApp() {
         await load(code); message('配置已保存到服务端，可在其他设备登录查看');
     });
     $('reload').onclick = run(async () => { await load(current?.code); message('已加载服务端最新配置'); });
-    $('copy').onclick = run(async () => { if (!$('code').value.trim()) throw Error('请先填写后缀并保存'); await navigator.clipboard.writeText($('export').textContent); message('订阅链接已复制'); });
+    $('copy').onclick = run(async () => { if (!catalog.profiles.some(p => p.code === $('code').value.trim())) throw Error('请先保存订阅，再复制链接'); await navigator.clipboard.writeText($('export').textContent); message('订阅链接已复制'); });
     $('logout').onclick = run(async () => { await api('logout', 'POST', {}); $('login').hidden = false; $('workspace').hidden = true; $('source').value = ''; $('preview').value = ''; catalog = { revision: 0, profiles: [] }; current = null; nodes = []; message('已退出'); });
     run(async () => { const s = await api('session'); if (s.authenticated) await load(); message(s.authenticated ? '已加载订阅' : '请登录'); })();
 }
