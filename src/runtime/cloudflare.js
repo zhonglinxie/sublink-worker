@@ -5,6 +5,6 @@ export function createCloudflareRuntime(env) {
         kv: env?.SUBLINK_KV ? new CloudflareKVAdapter(env.SUBLINK_KV) : null,
         assetFetcher: env?.ASSETS ? (request) => env.ASSETS.fetch(request) : null,
         logger: console,
-        config: {}
+        config: { adminPasswordHash: env?.ADMIN_PASSWORD_HASH || null }
     };
 }

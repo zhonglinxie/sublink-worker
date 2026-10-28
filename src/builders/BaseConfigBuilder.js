@@ -100,7 +100,7 @@ export class BaseConfigBuilder {
                             }
 
                             // If format is compatible with target client, use as provider
-                            if (this.isCompatibleProviderFormat(format)) {
+                            if (!this.inlineSubscriptions && this.isCompatibleProviderFormat(format)) {
                                 this.providerUrls.push(originalUrl);
                                 continue;  // Skip parsing, will be used as provider
                             }

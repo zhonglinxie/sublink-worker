@@ -71,3 +71,21 @@ describe('Issue #362 - subscription userinfo passthrough', () => {
         expect(decodeBase64(await res.text())).toBe(proxyUri);
     });
 });
+
+describe('inline Clash subscriptions', () => {
+    afterEach(() => vi.unstubAllGlobals());
+    it('embeds nodes and retains usage information when enabled', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => ({
+            ok: true, status: 200,
+            text: async () => 'proxies:\n  - {name: InlineNode, type: ss, server: example.com, port: 443, cipher: aes-128-gcm, password: password}\n',
+            headers: { get: (name) => name.toLowerCase() === 'subscription-userinfo' ? subscriptionUserinfo : null }
+        })));
+        const app = createTestApp();
+        const response = await app.request(`http://localhost/clash?config=${encodeURIComponent(remoteSubscriptionUrl)}&inline_subscriptions=true`);
+        expect(response.status).toBe(200);
+        expect(response.headers.get('subscription-userinfo')).toBe(subscriptionUserinfo);
+        const text = await response.text();
+        expect(text).toContain('InlineNode');
+        expect(text).not.toContain(remoteSubscriptionUrl);
+    });
+});

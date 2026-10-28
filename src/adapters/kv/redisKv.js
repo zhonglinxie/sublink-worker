@@ -28,6 +28,10 @@ export class RedisKVAdapter {
         }
     }
 
+    async compareAndSet(key, expected, value) {
+        return await this.client.eval("if (redis.call('GET', KEYS[1]) or '') ~= ARGV[1] then return 0 end redis.call('SET', KEYS[1], ARGV[2]) return 1", 1, this.formatKey(key), expected ?? '', value) === 1;
+    }
+
     async delete(key) {
         await this.client.del(this.formatKey(key));
     }

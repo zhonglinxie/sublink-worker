@@ -133,6 +133,7 @@ export const translations = {
       'GLOBAL': 'GLOBAL'
     },
     generalSettings: '通用设置',
+    inlineSubscriptions: '直接导入订阅节点（Clash）',
     groupByCountry: '按国家分组',
     groupByCountryTip: '仅 Clash/Surge/SingBox 生效',
     includeAutoSelect: '包含自动选择分组',
@@ -295,6 +296,7 @@ export const translations = {
       'GLOBAL': 'GLOBAL'
     },
     generalSettings: 'General Settings',
+    inlineSubscriptions: 'Inline subscription nodes (Clash)',
     groupByCountry: 'Group by Country',
     groupByCountryTip: 'Clash/Surge/SingBox only',
     includeAutoSelect: 'Include Auto Select Group',
@@ -451,6 +453,7 @@ export const translations = {
       'GLOBAL': 'GLOBAL'
     },
     generalSettings: 'تنظیمات عمومی',
+    inlineSubscriptions: 'درون‌گذاری نودهای اشتراک (Clash)',
     groupByCountry: 'گروه‌بندی بر اساس کشور',
     groupByCountryTip: 'فقط Clash/Surge/SingBox',
     includeAutoSelect: 'شامل گروه انتخاب خودکار',
@@ -607,6 +610,7 @@ export const translations = {
       'GLOBAL': 'GLOBAL'
     },
     generalSettings: 'Общие настройки',
+    inlineSubscriptions: 'Встроить узлы подписки (Clash)',
     groupByCountry: 'Группировать по странам',
     groupByCountryTip: 'Только для Clash/Surge/SingBox',
     includeAutoSelect: 'Включить группу автовыбора',

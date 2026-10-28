@@ -10,6 +10,7 @@ export function createNodeRuntime(env = process.env) {
         assetFetcher: createFileAssetFetcher(env.STATIC_DIR || 'public'),
         logger: console,
         config: {
+            adminPasswordHash: env.ADMIN_PASSWORD_HASH || null,
             configTtlSeconds: parseNumber(env.CONFIG_TTL_SECONDS) || undefined,
             shortLinkTtlSeconds: parseNumber(env.SHORT_LINK_TTL_SECONDS) || null
         }
@@ -30,6 +31,7 @@ function resolveKv(env) {
     if (env.DISABLE_MEMORY_KV === 'true') {
         return null;
     }
+    if (env.ADMIN_PASSWORD_HASH) return null;
     return new MemoryKVAdapter();
 }
 
