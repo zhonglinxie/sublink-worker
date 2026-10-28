@@ -19,6 +19,12 @@ export function registerAdminRoutes(app, runtime) {
     app.get('/admin/session', async c => c.json({ authenticated: await authenticated(c, runtime) }));
     app.post('/admin/logout', async c => { await logout(c, runtime); return c.json({ ok: true }); });
     app.get('/admin/profiles', async c => c.json((await readCatalog(runtime.kv)).data));
+    app.post('/admin/inspect', async c => {
+        const { input } = await c.req.json();
+        // Source inspection must work before a new subscription has a name or link.
+        const result = await renderProfile(validateProfile({ name: 'Preview', code: 'preview', input, excluded: [], groups: [] }));
+        return c.json({ nodes: result.nodes, userinfo: result.userinfo || null });
+    });
     app.post('/admin/preview', async c => {
         const profile = validateProfile(await c.req.json());
         const result = await renderProfile(profile);

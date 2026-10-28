@@ -62,4 +62,14 @@ describe('single-owner management', () => {
         const results = await Promise.all([send(app, cookie, '/admin/profiles/my-airport', 'PUT', { revision: 0, profile }), send(app, cookie, '/admin/profiles/second', 'PUT', { revision: 0, profile: { ...profile, code: 'second' } })]);
         expect(results.map(r => r.status).sort()).toEqual([200, 409]);
     });
+    it('inspects a source before naming a subscription without persisting it', async () => {
+        const { app, cookie } = await setup();
+        expect((await send(app, '', '/admin/inspect', 'POST', { input: source })).status).toBe(401);
+        const response = await send(app, cookie, '/admin/inspect', 'POST', { input: source });
+        expect(response.status).toBe(200);
+        expect((await response.json()).nodes.map(node => node.name)).toEqual(['US', 'TW']);
+        const catalog = await (await app.request(origin + '/admin/profiles', { headers: { Cookie: cookie } })).json();
+        expect(catalog).toEqual({ revision: 0, profiles: [] });
+        expect((await send(app, cookie, '/admin/inspect', 'POST', { input: '' })).status).toBe(400);
+    });
 });
