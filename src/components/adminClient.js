@@ -44,7 +44,7 @@ export function managementApp() {
     function updateDirty() { $('savebar').hidden = !dirty() || $('workspace').hidden; $('preview').hidden = true; $('preview').value = ''; }
     function renderSidebar() {
         $('subscription-list').replaceChildren(); $('mobile-profiles').replaceChildren();
-        catalog.profiles.forEach(profile => {
+        [...catalog.profiles].sort((a, b) => a.code.localeCompare(b.code)).forEach(profile => {
             const button = el('button', undefined, 'subscription-item'); button.type = 'button'; button.setAttribute('aria-current', String(profile.code === current?.code));
             button.append(el('span', '↗', 'muted'), el('span', profile.name, 'name'), el('span', '', 'dot' + (profile.enabled ? '' : ' off')));
             button.onclick = () => leave(() => choose(profile)); $('subscription-list').append(button);

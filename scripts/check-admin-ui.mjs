@@ -56,6 +56,7 @@ test('filters by protocol, batches only visible nodes and removes exclusions fro
     assert.equal($('group-editor').querySelectorAll('input[type=checkbox]').length, 2);
     assert.equal($('group-editor').querySelectorAll('select[multiple]').length, 0);
     $('save').click(); await until(() => $('savebar').hidden);
+    assert.match($('subscription-list').children[0].textContent, /Airport/);
 });
 test('guards subscription switching and preserves drafts when staying', async t => {
     const { $, input } = await setup(t); input('name', 'Draft');
