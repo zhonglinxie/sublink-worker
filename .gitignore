@@ -184,3 +184,4 @@ AGENTS.local.md
 
 # Local upstream source references
 .upstreams/
+.env*

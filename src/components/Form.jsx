@@ -169,6 +169,10 @@ export const Form = (props) => {
             
             <div class="space-y-4">
               <label class="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-gray-700/30 hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors cursor-pointer">
+                <span class="font-medium text-gray-700 dark:text-gray-300">{t('inlineSubscriptions')}</span>
+                <input type="checkbox" x-model="inlineSubscriptions" class="w-5 h-5 accent-primary-600" />
+              </label>
+              <label class="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-gray-700/30 hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors cursor-pointer">
                 <span class="font-medium text-gray-700 dark:text-gray-300">{t('groupByCountry')}</span>
                 <div class="relative inline-flex items-center cursor-pointer">
                   <input type="checkbox" x-model="groupByCountry" class="sr-only peer" />

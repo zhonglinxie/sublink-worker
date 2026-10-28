@@ -18,6 +18,12 @@ export class MemoryKVAdapter {
         }
     }
 
+    async compareAndSet(key, expected, value) {
+        if ((this.store.get(key) ?? null) !== expected) return false;
+        this.store.set(key, value);
+        return true;
+    }
+
     async delete(key) {
         this.store.delete(key);
         this.clearExpiration(key);

@@ -20,6 +20,10 @@ export class UpstashKVAdapter {
         await this.execute(command);
     }
 
+    async compareAndSet(key, expected, value) {
+        return await this.execute(['EVAL', "if (redis.call('GET', KEYS[1]) or '') ~= ARGV[1] then return 0 end redis.call('SET', KEYS[1], ARGV[2]) return 1", '1', key, expected ?? '', value]) === 1;
+    }
+
     async delete(key) {
         await this.execute(['DEL', key]);
     }

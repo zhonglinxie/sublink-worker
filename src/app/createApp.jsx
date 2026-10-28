@@ -1,6 +1,9 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource hono/jsx */
 import { Hono } from 'hono';
+import { registerAdminRoutes, managedExport } from './adminRoutes.js';
+import { authenticated, sameOrigin } from '../services/adminAuth.js';
+import { AdminPage } from '../components/AdminPage.jsx';
 import { Layout } from '../components/Layout.jsx';
 import { Navbar } from '../components/Navbar.jsx';
 import { Form } from '../components/Form.jsx';
@@ -28,12 +31,24 @@ export function createApp(bindings = {}) {
     };
 
     const app = new Hono();
+    app.onError((error, c) => c.req.path.startsWith('/admin/')
+        ? c.json({ error: error instanceof ServiceError ? error.message : '操作失败，请稍后重试' }, error instanceof ServiceError ? error.status : 500)
+        : handleError(c, error, runtime.logger));
 
     app.use('*', async (c, next) => {
         const acceptLanguage = getRequestHeader(c.req, 'Accept-Language');
         const lang = c.req.query('lang') || acceptLanguage?.split(',')[0] || 'zh-CN';
         c.set('lang', lang);
         c.set('t', createTranslator(lang));
+        await next();
+    });
+
+    registerAdminRoutes(app, runtime);
+    app.get('/manage', c => c.html(<AdminPage />));
+    app.use('*', async (c, next) => {
+        if (runtime.config.adminPasswordHash && (c.req.path === '/shorten-v2' || (c.req.path === '/config' && c.req.method === 'POST'))) {
+            if ((c.req.method === 'GET' ? c.req.header('X-Requested-With') !== 'sublink' : !sameOrigin(c)) || !await authenticated(c, runtime)) return c.json({ error: '请先登录管理页' }, 401);
+        }
         await next();
     });
 
@@ -161,6 +176,7 @@ export function createApp(bindings = {}) {
                 externalUiDownloadUrl,
                 includeAutoSelect
             );
+            builder.inlineSubscriptions = parseBooleanFlag(c.req.query('inline_subscriptions'));
             await builder.build();
             const userinfo = builder.getSubscriptionUserinfo();
             const headers = { 'Content-Type': 'text/yaml; charset=utf-8' };
@@ -348,7 +364,7 @@ export function createApp(bindings = {}) {
 
     app.get('/s/:code', redirectHandler('surge'));
     app.get('/b/:code', redirectHandler('singbox'));
-    app.get('/c/:code', redirectHandler('clash'));
+    app.get('/c/:code', async c => await managedExport(c, runtime) || redirectHandler('clash')(c));
     app.get('/x/:code', redirectHandler('xray'));
 
     app.post('/config', async (c) => {

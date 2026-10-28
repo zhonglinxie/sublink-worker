@@ -39,6 +39,7 @@ export function normalizeRuntime(runtime = {}) {
         assetFetcher: runtime.assetFetcher ?? null,
         logger: runtime.logger ?? console,
         config: {
+            adminPasswordHash: runtime.config?.adminPasswordHash ?? null,
             configTtlSeconds: runtime.config?.configTtlSeconds ?? DEFAULTS.configTtlSeconds,
             shortLinkTtlSeconds: runtime.config?.shortLinkTtlSeconds ?? null
         }

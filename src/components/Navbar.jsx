@@ -12,6 +12,7 @@ export const Navbar = () => {
                         <span>{APP_NAME}</span>
                     </a>
                     <div class="flex items-center gap-3">
+                        <a href="/manage" class="px-4 py-2 text-sm font-medium">管理订阅</a>
                         <a
                             href={DOCS_URL}
                             target="_blank"

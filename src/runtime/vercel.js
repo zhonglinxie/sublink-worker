@@ -10,6 +10,7 @@ export function createVercelRuntime(env = process.env) {
         assetFetcher: createFileAssetFetcher('public'),
         logger: console,
         config: {
+            adminPasswordHash: env.ADMIN_PASSWORD_HASH || null,
             configTtlSeconds: undefined,
             shortLinkTtlSeconds: null
         }
@@ -27,6 +28,7 @@ function resolveKv(env) {
             token: env.KV_REST_API_TOKEN
         });
     }
+    if (env.ADMIN_PASSWORD_HASH) return null;
     return new MemoryKVAdapter();
 }
 
