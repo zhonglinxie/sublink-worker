@@ -25,12 +25,12 @@ export function registerAdminRoutes(app, runtime) {
         const { input } = await c.req.json();
         // Source inspection must work before a new subscription has a name or link.
         const result = await renderProfile(validateProfile({ name: 'Preview', code: 'preview', input, excluded: [], groups: [] }));
-        return c.json({ nodes: result.nodes, userinfo: result.userinfo || null });
+        return c.json({ nodes: result.nodes, sourceGroups: result.sourceGroups, sourceRuleCount: result.sourceRuleCount, preserved: result.preserved, userinfo: result.userinfo || null });
     });
     app.post('/admin/preview', async c => {
         const profile = validateProfile(await c.req.json());
         const result = await renderProfile(profile);
-        return c.json({ nodes: result.nodes, userinfo: result.userinfo || null, yaml: result.yaml });
+        return c.json({ nodes: result.nodes, sourceGroups: result.sourceGroups, sourceRuleCount: result.sourceRuleCount, preserved: result.preserved, userinfo: result.userinfo || null, yaml: result.yaml });
     });
     app.put('/admin/profiles/:code', async c => {
         const { revision, profile: value } = await c.req.json();
