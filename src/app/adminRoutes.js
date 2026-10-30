@@ -50,7 +50,10 @@ export async function managedExport(c, runtime) {
     if (!profile.enabled) return c.text('Subscription disabled', 410, { 'Cache-Control': 'no-store' });
     try {
         const result = await renderProfile(profile);
-        const headers = { 'Content-Type': 'text/yaml; charset=utf-8', 'Cache-Control': 'private, no-store', 'Profile-Title': encodeURIComponent(profile.name), 'Content-Disposition': `attachment; filename="${profile.code}.yaml"` };
+        // Subscription titles use UTF-8 Base64; extended filenames avoid leaking quotes or percent escapes into client labels.
+        const title = btoa(String.fromCharCode(...new TextEncoder().encode(profile.name)));
+        const filename = encodeURIComponent(profile.name + '.yaml');
+        const headers = { 'Content-Type': 'text/yaml; charset=utf-8', 'Cache-Control': 'private, no-store', 'Profile-Title': `base64:${title}`, 'Content-Disposition': `attachment; filename=${profile.code}.yaml; filename*=UTF-8''${filename}` };
         if (result.userinfo) headers['Subscription-Userinfo'] = result.userinfo;
         return c.text(result.yaml, 200, headers);
     } catch { return c.text('Subscription source temporarily unavailable', 503, { 'Cache-Control': 'no-store' }); }
