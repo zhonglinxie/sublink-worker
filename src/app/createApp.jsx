@@ -44,7 +44,7 @@ export function createApp(bindings = {}) {
     });
 
     registerAdminRoutes(app, runtime);
-    app.get('/manage', c => c.html(<AdminPage />));
+    app.get('/manage', c => c.redirect('/?manage=1#managed-subscriptions'));
     app.use('*', async (c, next) => {
         if (runtime.config.adminPasswordHash && (c.req.path === '/shorten-v2' || (c.req.path === '/config' && c.req.method === 'POST'))) {
             if ((c.req.method === 'GET' ? c.req.header('X-Requested-With') !== 'sublink' : !sameOrigin(c)) || !await authenticated(c, runtime)) return c.json({ error: '请先登录管理页' }, 401);
@@ -73,6 +73,7 @@ export function createApp(bindings = {}) {
                                     </p>
                                 </div>
                                 <Form t={t} lang={lang} />
+                                <AdminPage open={c.req.query('manage') === '1'} />
                             </div>
                         </div>
                     </main>

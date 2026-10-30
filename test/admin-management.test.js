@@ -36,8 +36,9 @@ describe('single-owner management', () => {
         expect(exported.status).toBe(200);
         const result = yaml.load(await exported.text());
         expect(result.proxies.map(x => x.name)).toEqual(['US']);
-        expect(result['proxy-groups'][0].type).toBe('fallback');
-        expect(result.rules).toEqual(['MATCH,My group']);
+        expect(result['proxy-groups'].find(group => group.name === 'My group').type).toBe('fallback');
+        expect(result.rules.at(-1)).toMatch(/^MATCH,/);
+        expect(result.rules.at(-1)).not.toBe('MATCH,My group');
         expect(result['proxy-providers']).toBeUndefined();
         expect((await app.request(origin + '/c/legacy')).status).toBe(302);
         expect((await send(app, cookie, '/admin/profiles/my-airport', 'PUT', { revision: 0, profile })).status).toBe(409);
@@ -121,7 +122,8 @@ describe('single-owner management', () => {
         expect(result.rules).toContain('DOMAIN-SUFFIX,claude.ai,AI');
         expect(result.rules).toContain('DOMAIN-SUFFIX,gemini.google.com,AI');
         expect(result.rules).toContain('DOMAIN-SUFFIX,hyperliquid.xyz,HL');
-        expect(result.rules.at(-1)).toBe('MATCH,General');
+        expect(result.rules.at(-1)).toMatch(/^MATCH,/);
+        expect(result.rules.at(-1)).not.toBe('MATCH,General');
         expect(result.mode).toBe('rule');
         expect(result.rules).not.toContain('DOMAIN-SUFFIX,google.com,AI');
         const saved = await (await app.request(origin + '/admin/profiles', { headers: { Cookie: cookie } })).json();

@@ -3,19 +3,20 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { createApp } from '../dist/vercel/createApp.js';
 import { managementApp } from '../src/components/adminClient.js';
-const html = await (await createApp().request('https://manager.example/manage')).text();
+const html = await (await createApp().request('https://manager.example/?manage=1')).text();
 const source = 'https://source.example/c/airport';
 const baseProfile = { name: 'Airport', code: 'airport', input: source, enabled: true, excluded: [], groups: [] };
 const nodes = [{ name: 'US HY2', type: 'hysteria2', server: 'us.example.com', port: 443 }, { name: 'US TUIC', type: 'tuic', server: '2001:db8::1', port: 8443 }, { name: '<script>alert(1)</script>', type: 'trojan', server: 'jp.example.com', port: 443 }];
 const tick = () => new Promise(resolve => setTimeout(resolve, 5));
 async function until(check) { for (let i = 0; i < 200; i++) { if (check()) return; await tick(); } assert.fail('UI did not settle'); }
 async function setup(t, overrides = {}) {
-    const dom = new JSDOM(html, { url: 'https://manager.example/manage', runScripts: 'outside-only', pretendToBeVisual: true });
+    const dom = new JSDOM(html, { url: 'https://manager.example/?manage=1', runScripts: 'outside-only', pretendToBeVisual: true });
     t.after(async () => { await tick(); await tick(); dom.window.close(); });
     const { window } = dom, $ = id => window.document.getElementById(id);
     window.HTMLDialogElement.prototype.showModal = function () { this.open = true; };
     window.HTMLDialogElement.prototype.close = function () { this.open = false; };
     window.Response = Response;
+    window.HTMLElement.prototype.scrollIntoView = function () {};
     let catalog = { revision: 1, profiles: [structuredClone(baseProfile), { ...structuredClone(baseProfile), name: 'Second', code: 'second' }] };
     const calls = [];
     window.fetch = async (url, options) => {
@@ -118,17 +119,36 @@ test('a failed refresh preserves last known nodes and presents a retry', async t
     assert.equal($('node-rows').children.length, 3); assert.match($('workspace-error').textContent, /重试/);
     assert.equal($('refresh').disabled, false); assert.equal($('savebar').hidden, true);
 });
-test('service presets preserve a general default and bind rules independently of the name', async t => {
+test('service presets add only the requested policies and retain the source fallback', async t => {
     const { $, calls } = await setup(t);
     $('preset-ai').click(); $('preset-hyperliquid').click(); $('preset-hyperliquid').click();
-    assert.equal($('group-list').children.length, 3);
+    assert.equal($('group-list').children.length, 2);
     assert.equal($('group-editor').querySelector('[aria-label="分组流量用途"]').value, 'hyperliquid');
     $('save').click(); await until(() => $('savebar').hidden);
     const groups = calls.findLast(call => call.method === 'PUT').body.profile.groups;
-    assert.equal(groups[0].name, '节点选择');
-    assert.deepEqual(groups[1].nodes, ['US HY2', 'US TUIC']);
-    assert.equal(groups[1].service, 'ai'); assert.equal(groups[2].service, 'hyperliquid');
-    assert.deepEqual(groups[2].nodes, ['<script>alert(1)</script>']);
+    assert.deepEqual(groups[0].nodes, ['US HY2', 'US TUIC']);
+    assert.equal(groups[0].service, 'ai'); assert.equal(groups[1].service, 'hyperliquid');
+    assert.deepEqual(groups[1].nodes, ['<script>alert(1)</script>']);
+});
+test('uses the original converter page and displays original groups in source order', async t => {
+    const { $, window } = await setup(t, { fetch: url => url === '/admin/inspect' ? Response.json({ nodes, sourceGroups: [{ name: '🚀 原节点选择', type: 'select', nodes: ['US HY2', 'DIRECT'] }, { name: '🤖 AI服务', type: 'url-test', nodes: ['US TUIC'] }], sourceRuleCount: 15, userinfo: null }) : null });
+    assert.ok(window.document.querySelector('[x-data="formData()"]'));
+    assert.match(html, /selectedPredefinedRule/);
+    assert.match(html, /groupByCountry/);
+    assert.equal(window.document.querySelector('.sidebar'), null);
+    assert.deepEqual([...$('original-groups').querySelectorAll('summary')].map(node => node.textContent), ['1. 🚀 原节点选择 · select', '2. 🤖 AI服务 · url-test']);
+    $('preset-ai').click();
+    assert.match($('group-editor').textContent, /保留该分组的成员、策略和原位置/);
+    assert.match($('group-note').textContent, /15 条原分流规则/);
+});
+test('saves the original conversion result with its selected classifications and options', async t => {
+    const { $, window } = await setup(t);
+    const url = 'https://manager.example/clash?config=https%3A%2F%2Fsource.example%2Fsub&selectedRules=%5B%22Youtube%22%2C%22AI%20Services%22%5D&group_by_country=true';
+    window.dispatchEvent(new window.CustomEvent('save-converted-subscription', { detail: { url } }));
+    assert.equal($('import-dialog').open, true);
+    const saved = new URL($('import-source').value), original = new URL(url);
+    for (const [key, value] of original.searchParams) assert.equal(saved.searchParams.get(key), value);
+    assert.equal(saved.searchParams.get('inline_subscriptions'), 'true');
 });
 test('account dialog checks confirmation and clears secrets after updating', async t => {
     const { $, window, calls, input } = await setup(t);

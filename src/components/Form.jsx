@@ -390,6 +390,9 @@ class="px-6 py-3.5 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 bo
       </div>
 
       {/* Shortening Controls */}
+      <div class="flex justify-center mt-4">
+        <button type="button" x-on:click="window.dispatchEvent(new CustomEvent('save-converted-subscription', { detail: { url: generatedLinks.clash } }))" class="px-5 py-2 border border-primary-500 text-primary-600 dark:text-primary-400 rounded-lg font-medium">保存到我的订阅</button>
+      </div>
       <div class="mt-6">
         <div class="flex flex-col items-center gap-3">
           <div class="w-full max-w-md">

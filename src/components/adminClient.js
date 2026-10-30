@@ -3,8 +3,8 @@ export function managementApp() {
     const $ = id => document.getElementById(id);
     const clone = value => JSON.parse(JSON.stringify(value));
     const el = (tag, text, className) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (className) node.className = className; return node; };
-    let catalog = { revision: 0, profiles: [] }, current = null, baseline = null, nodes = [], userinfo = null;
-    let activeTab = 'overview', activeGroup = 0, epoch = 0, loading = false, mutating = false, accountBusy = false, sourceVersion = '', pendingLeave = null, importData = null, importVersion = 0, toastTimer;
+    let catalog = { revision: 0, profiles: [] }, current = null, baseline = null, nodes = [], userinfo = null, sourceGroups = [], sourceRuleCount = 0;
+    let activeTab = 'overview', activeGroup = 0, epoch = 0, loading = false, mutating = false, accountBusy = false, sourceVersion = '', pendingLeave = null, importData = null, importVersion = 0, pendingConversion = null, toastTimer;
     const dirty = () => current && JSON.stringify(current) !== JSON.stringify(baseline);
     const link = code => location.origin + '/c/' + code;
     const text = (id, value) => { $(id).textContent = value; };
@@ -57,7 +57,7 @@ export function managementApp() {
         const u = usage(userinfo), count = eligible().length;
         text('profile-title', current.name || '未命名订阅');
         text('profile-status', current.enabled ? '● 已启用' : '● 已停用'); $('profile-status').classList.toggle('off', !current.enabled);
-        text('export-link', link(current.code)); text('nodes-count', nodes.length ? String(nodes.length) : ''); text('groups-count', current.groups.length || '');
+        text('export-link', link(current.code)); text('nodes-count', nodes.length ? String(nodes.length) : ''); text('groups-count', sourceGroups.length + current.groups.length || '');
         $('usage-value').replaceChildren(el('span', u.known ? u.usedLabel : '—'), el('small', u.known && u.total ? '/ ' + u.totalLabel : u.known ? '已使用' : '源订阅未提供'));
         $('usage-progress').style.width = u.percent + '%';
         if (u.total) $('usage-meter').setAttribute('aria-valuenow', u.percent); else $('usage-meter').removeAttribute('aria-valuenow');
@@ -65,8 +65,8 @@ export function managementApp() {
         text('usage-note', u.total ? '剩余 ' + u.remaining + ' · 已使用 ' + u.percent + '%' : u.known ? '源订阅未提供总流量' : '用量由源订阅提供，不在此处估算');
         $('node-value').replaceChildren(el('span', nodes.length ? String(count) : '—'), el('small', nodes.length ? '/ ' + nodes.length + ' 个节点' : '等待源订阅数据'));
         text('node-note', nodes.length ? current.excluded.length ? '按你的选择导出' : '全部节点已加入导出' : '读取后即可筛选节点');
-        $('group-value').replaceChildren(el('span', String(current.groups.length || 1)), el('small', '个分组'));
-        text('group-note', current.groups.length ? '默认出口：' + current.groups[0].name : '使用默认「节点选择」组');
+        $('group-value').replaceChildren(el('span', String(sourceGroups.length + current.groups.filter(group => !sourceGroups.some(original => original.name === group.name)).length)), el('small', '个分组'));
+        text('group-note', '保留来源分组顺序与 ' + sourceRuleCount + ' 条原分流规则');
         text('source-label', sourceLabel(current.input)); text('expire-label', u.expire);
         text('saved-label', current.updatedAt ? new Date(current.updatedAt).toLocaleString('zh-CN', { hour12: false }) : '尚未保存');
         text('node-summary', count + ' / ' + nodes.length + ' 已选择'); updateDirty();
@@ -100,6 +100,11 @@ export function managementApp() {
     }
     function groupButton(label, click, className = 'small') { const button = el('button', label, className); button.type = 'button'; button.onclick = click; return button; }
     function renderGroups() {
+        $('original-groups-section').hidden = !sourceGroups.length; $('original-groups').replaceChildren();
+        sourceGroups.forEach((group, index) => {
+            const details = el('details'), summary = el('summary', (index + 1) + '. ' + group.name + ' · ' + group.type);
+            details.append(summary, el('p', group.nodes.join(' · ') || '沿用来源的 Provider / 筛选设置', 'muted')); $('original-groups').append(details);
+        });
         const groups = current.groups; $('groups-empty').hidden = Boolean(groups.length); $('groups-layout').hidden = !groups.length; $('group-list').replaceChildren(); $('group-editor').replaceChildren();
         if (!groups.length) return;
         activeGroup = Math.min(activeGroup, groups.length - 1);
@@ -109,6 +114,9 @@ export function managementApp() {
             button.onclick = () => { activeGroup = index; renderGroups(); }; $('group-list').append(button);
         });
         const group = groups[activeGroup], editor = $('group-editor'), fields = el('div', undefined, 'two');
+        if (group.service && sourceGroups.some(original => original.name === group.name)) {
+            editor.append(el('h3', group.name), el('p', '服务规则绑定到已有来源分组，保留该分组的成员、策略和原位置。', 'note'), groupButton('移除附加服务规则', () => { groups.splice(activeGroup, 1); renderGroups(); renderSummary(); }, 'small danger')); return;
+        }
         const nameLabel = el('label', '分组名称', 'field'), name = el('input'); name.value = group.name; name.maxLength = 100; name.setAttribute('aria-label', '分组名称');
         name.oninput = () => { group.name = name.value; const selected = $('group-list').children[activeGroup]; selected.querySelector('span').textContent = name.value || '未命名分组'; renderSummary(); }; nameLabel.append(name);
         const typeLabel = el('label', '选择方式', 'field'), type = el('select'); type.setAttribute('aria-label', '分组选择方式');
@@ -131,7 +139,7 @@ export function managementApp() {
             if (!available.length) members.append(el('p', '没有可加入的节点，请先在「节点」中选择导出节点。', 'note'));
         }; search.oninput = memberRows; memberRows();
         const actions = el('div', undefined, 'group-actions');
-        if (activeGroup > 0) actions.append(groupButton('设为默认出口', () => { groups.unshift(groups.splice(activeGroup, 1)[0]); activeGroup = 0; renderGroups(); renderSummary(); }));
+        if (!sourceRuleCount && activeGroup > 0) actions.append(groupButton('设为默认出口', () => { groups.unshift(groups.splice(activeGroup, 1)[0]); activeGroup = 0; renderGroups(); renderSummary(); }));
         if (activeGroup > 0) actions.append(groupButton('上移 ↑', () => { [groups[activeGroup - 1], groups[activeGroup]] = [groups[activeGroup], groups[activeGroup - 1]]; activeGroup--; renderGroups(); renderSummary(); }));
         if (activeGroup < groups.length - 1) actions.append(groupButton('下移 ↓', () => { [groups[activeGroup + 1], groups[activeGroup]] = [groups[activeGroup], groups[activeGroup + 1]]; activeGroup++; renderGroups(); renderSummary(); }));
         actions.append(groupButton('移除分组', () => { groups.splice(activeGroup, 1); activeGroup = Math.max(0, activeGroup - 1); renderGroups(); renderSummary(); }, 'small danger')); editor.append(actions);
@@ -150,7 +158,7 @@ export function managementApp() {
             const result = await api('inspect', 'POST', { input });
             // Ignore a late response if the user switched subscriptions or edited the source.
             if (mine !== epoch || input !== current?.input) return;
-            nodes = result.nodes; userinfo = result.userinfo; sourceVersion = input;
+            nodes = result.nodes; userinfo = result.userinfo; sourceGroups = result.sourceGroups || []; sourceRuleCount = result.sourceRuleCount || 0; sourceVersion = input;
             const protocol = $('protocol-filter').value; $('protocol-filter').replaceChildren(new Option('所有协议', ''));
             [...new Set(nodes.map(n => n.type))].sort().forEach(type => $('protocol-filter').add(new Option(type.toUpperCase(), type)));
             if ([...$('protocol-filter').options].some(option => option.value === protocol)) $('protocol-filter').value = protocol;
@@ -159,7 +167,7 @@ export function managementApp() {
         finally { if (mine === epoch) { loading = false; $('loading').hidden = true; $('refresh').disabled = false; $('check-source').disabled = false; } }
     }
     async function choose(profile) {
-        epoch++; loading = false; current = profile ? clone(profile) : null; baseline = current ? clone(current) : null; nodes = []; userinfo = null; sourceVersion = ''; activeGroup = 0;
+        epoch++; loading = false; current = profile ? clone(profile) : null; baseline = current ? clone(current) : null; nodes = []; userinfo = null; sourceGroups = []; sourceRuleCount = 0; sourceVersion = ''; activeGroup = 0;
         $('profile-content').hidden = !current; $('empty-workspace').hidden = Boolean(current); $('savebar').hidden = true; $('loading').hidden = true; $('refresh').disabled = false; $('check-source').disabled = false; showError('workspace-error', ''); renderSidebar();
         if (!current) return;
         try { localStorage.setItem('sublink:last-profile', current.code); } catch { /* Storage can be disabled in private browsing. */ }
@@ -175,6 +183,7 @@ export function managementApp() {
         catalog = await api('profiles'); $('login-screen').hidden = true; $('workspace').hidden = false;
         let remembered; try { remembered = localStorage.getItem('sublink:last-profile'); } catch { /* Selection persistence is optional. */ }
         await choose(catalog.profiles.find(p => p.code === (preferred || remembered)) || catalog.profiles[0]);
+        if (pendingConversion) { const input = pendingConversion; pendingConversion = null; openImport(); $('import-source').value = input; }
     }
     function validate(profile) {
         const prefix = profile === current ? '' : 'import-';
@@ -224,16 +233,17 @@ export function managementApp() {
     function addGroup(type = 'select') {
         if (!nodes.length) { toast('请先成功读取源订阅，再创建分组', true); return; }
         let name = type === 'url-test' ? '自动选择' : '新分组', i = 2, base = name;
-        while (current.groups.some(group => group.name === name)) name = base + ' ' + i++;
+        while (current.groups.some(group => group.name === name) || sourceGroups.some(group => group.name === name)) name = base + ' ' + i++;
         current.groups.push({ name, type, nodes: eligible().map(n => n.name) }); activeGroup = current.groups.length - 1; renderGroups(); renderSummary();
     }
     function addServiceGroup(service) {
         if (!eligible().length) { toast('请先读取并保留至少一个节点', true); return; }
         const existing = current.groups.findIndex(group => group.service === service);
         if (existing >= 0) { activeGroup = existing; renderGroups(); toast('此服务分组已经存在'); return; }
-        if (!current.groups.length) current.groups.push({ name: '节点选择', type: 'select', nodes: eligible().map(n => n.name) });
+        const original = sourceGroups.find(group => service === 'ai' ? /AI|人工智能|ChatGPT|OpenAI|Claude/i.test(group.name) : /hyperliquid/i.test(group.name));
+        if (original) { current.groups.push({ name: original.name, type: 'select', service, nodes: eligible().map(n => n.name) }); activeGroup = current.groups.length - 1; renderGroups(); renderSummary(); return; }
         let name = service === 'ai' ? 'AI' : 'Hyperliquid', base = name, i = 2;
-        while (current.groups.some(group => group.name === name) || nodes.some(node => node.name === name)) name = base + ' ' + i++;
+        while (current.groups.some(group => group.name === name) || sourceGroups.some(group => group.name === name) || nodes.some(node => node.name === name)) name = base + ' ' + i++;
         const isUS = name => /(^|[\s|_-])(US|USA)(?=$|[\s|_-])|美国|🇺🇸/i.test(name);
         const preferred = eligible().filter(node => service === 'ai' ? isUS(node.name) : !isUS(node.name));
         current.groups.push({ name, service, type: 'select', nodes: (preferred.length ? preferred : eligible()).map(n => n.name) }); activeGroup = current.groups.length - 1;
@@ -300,6 +310,16 @@ export function managementApp() {
     $('preset-ai').onclick = () => addServiceGroup('ai'); $('preset-hyperliquid').onclick = () => addServiceGroup('hyperliquid');
     $('generate-preview').onclick = () => action($('generate-preview'), async () => { validate(current); const version = epoch, draft = JSON.stringify(current), result = await api('preview', 'POST', current); if (version === epoch && draft === JSON.stringify(current)) { $('preview').value = result.yaml; $('preview').hidden = false; } });
     $('import-close').onclick = $('import-cancel').onclick = closeImport;
+    window.addEventListener('save-converted-subscription', event => {
+        if (!event.detail?.url) return;
+        const url = new URL(event.detail.url, location.origin);
+        if (url.origin !== location.origin) return;
+        // Reuse the original converter's chosen categories and options; inline remote nodes for saved subscription management.
+        url.searchParams.set('inline_subscriptions', 'true');
+        $('managed-subscriptions').open = true; $('managed-subscriptions').scrollIntoView({ block: 'start' });
+        if ($('workspace').hidden) { pendingConversion = url.href; toast('请先登录，再保存当前转换结果'); $('username').focus(); }
+        else leave(() => { openImport(); $('import-source').value = url.href; });
+    });
     $('import-dialog').oncancel = event => { if (mutating) event.preventDefault(); else importVersion++; };
     $('import-file').onchange = async () => { const file = $('import-file').files[0]; if (!file) return; if (file.size > 200000) { showError('import-error', '配置文件不能超过 200 KB'); return; } const version = importVersion; const content = await file.text(); if (version === importVersion) $('import-source').value = content; };
     $('import-inspect').onclick = () => action($('import-inspect'), async () => {
