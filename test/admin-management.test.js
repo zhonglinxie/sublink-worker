@@ -73,6 +73,14 @@ describe('single-owner management', () => {
         expect(catalog).toEqual({ revision: 0, profiles: [] });
         expect((await send(app, cookie, '/admin/inspect', 'POST', { input: '' })).status).toBe(400);
     });
+    it('exports the Chinese profile title and filename without literal quoting artifacts', async () => {
+        const { app, cookie } = await setup();
+        expect((await send(app, cookie, '/admin/profiles/my-airport', 'PUT', { revision: 0, profile: { ...profile, name: '贻姐航空' } })).status).toBe(200);
+        const response = await app.request(origin + '/c/my-airport');
+        const title = response.headers.get('profile-title');
+        expect(new TextDecoder().decode(Uint8Array.from(atob(title.slice(7)), char => char.charCodeAt(0)))).toBe('贻姐航空');
+        expect(response.headers.get('content-disposition')).toBe("attachment; filename=my-airport.yaml; filename*=UTF-8''" + encodeURIComponent('贻姐航空.yaml'));
+    });
     it('requires the username and stores an upgraded salted credential', async () => {
         const { app, kv } = await setup();
         expect((await send(app, '', '/admin/login', 'POST', { password: 'test-long-random-password' })).status).toBe(401);
