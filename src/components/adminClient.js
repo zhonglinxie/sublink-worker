@@ -57,7 +57,8 @@ export function managementApp() {
         const u = usage(userinfo), count = eligible().length;
         text('profile-title', current.name || '未命名订阅');
         text('profile-status', current.enabled ? '● 已启用' : '● 已停用'); $('profile-status').classList.toggle('off', !current.enabled);
-        text('export-link', link(current.code)); text('nodes-count', nodes.length ? String(nodes.length) : ''); text('groups-count', sourceGroups.length + current.groups.length || '');
+        const groupCount = sourceGroups.length + current.groups.filter(group => !sourceGroups.some(original => original.name === group.name)).length;
+        text('export-link', link(current.code)); text('nodes-count', nodes.length ? String(nodes.length) : ''); text('groups-count', groupCount || '');
         $('usage-value').replaceChildren(el('span', u.known ? u.usedLabel : '—'), el('small', u.known && u.total ? '/ ' + u.totalLabel : u.known ? '已使用' : '源订阅未提供'));
         $('usage-progress').style.width = u.percent + '%';
         if (u.total) $('usage-meter').setAttribute('aria-valuenow', u.percent); else $('usage-meter').removeAttribute('aria-valuenow');

@@ -139,6 +139,7 @@ test('uses the original converter page and displays original groups in source or
     assert.deepEqual([...$('original-groups').querySelectorAll('summary')].map(node => node.textContent), ['1. 🚀 原节点选择 · select', '2. 🤖 AI服务 · url-test']);
     $('preset-ai').click();
     assert.match($('group-editor').textContent, /保留该分组的成员、策略和原位置/);
+    assert.equal($('groups-count').textContent, '2');
     assert.match($('group-note').textContent, /15 条原分流规则/);
 });
 test('saves the original conversion result with its selected classifications and options', async t => {
